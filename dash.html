@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circle Dash</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(to bottom, #1a1a3d, #2a2a5e);
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'Arial', sans-serif;
+        }
+        canvas {
+            border: 2px solid #ffffff20;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+        }
+        #gameOverScreen, #startScreen, #difficultyScreen {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+        #scoreDisplay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 24px;
+            text-shadow: 0 0 5px #00ffcc;
+        }
+        .difficulty-btn {
+            background-color: #10b981;
+            margin: 5px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .difficulty-btn:hover {
+            background-color: #059669;
+        }
+    </style>
+</head>
+<body>
+    <div id="scoreDisplay">Score: 0</div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="difficultyScreen">
+        <h1 class="text-4xl font-bold mb-4 text-cyan-300">Schwierigkeitsgrad wählen</h1>
+        <button id="easyButton" class="difficulty-btn text-white font-bold py-2 px-4 rounded">Einfach</button><br>
+        <button id="normalButton" class="difficulty-btn text-white font-bold py-2 px-4 rounded">Normal</button><br>
+        <button id="hardButton" class="difficulty-btn text-white font-bold py-2 px-4 rounded">Schwer</button><br>
+    </div>
+    <div id="startScreen">
+        <h1 class="text-4xl font-bold mb-4 text-cyan-300">Circle Dash</h1>
+        <p class="text-lg mb-4">Nutze die Pfeiltasten oder WASD, um deinen Charakter zu bewegen.<br>Stehe innerhalb von 6 Sekunden vollständig in den Kreisen, die von Dunkelgrün zu Rot wechseln.<br>Verpasse keinen Kreis, sonst endet das Spiel!</p>
+        <button id="startButton" class="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded">Spiel starten</button>
+    </div>
+    <div id="gameOverScreen">
+        <h1 class="text-4xl font-bold mb-4 text-cyan-300">Game Over</h1>
+        <p class="text-lg mb-4">Endpunktzahl: <span id="finalScore">0</span></p>
+        <button id="retryButton" class="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded mr-2">Erneut versuchen</button>
+        <button id="changeDifficultyButton" class="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded">Schwierigkeit ändern</button>
+    </div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const difficultyScreen = document.getElementById('difficultyScreen');
+        const finalScore = document.getElementById('finalScore');
+        const startButton = document.getElementById('startButton');
+        const retryButton = document.getElementById('retryButton');
+        const changeDifficultyButton = document.getElementById('changeDifficultyButton');
+        const easyButton = document.getElementById('easyButton');
+        const normalButton = document.getElementById('normalButton');
+        const hardButton = document.getElementById('hardButton');
+
+        let score = 0;
+        let gameRunning = false;
+        let selectedDifficulty = 'normal';
+        let circle = null;
+        let circleTime = 0;
+        let maxCircleTime = 6; // Initial 6 seconds
+        let circleRadius = 40; // Initial radius (larger than player)
+        let difficultyMultiplier = 1;
+
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            radius: 20,
+            speed: 5,
+            dx: 0,
+            dy: 0
+        };
+
+        const keys = {};
+
+        function createCircle() {
+            const x = Math.random() * (canvas.width - circleRadius * 2) + circleRadius;
+            const y = Math.random() * (canvas.height - circleRadius * 2) + circleRadius;
+            circle = { x, y, radius: circleRadius, time: 0, maxTime: maxCircleTime, color: '#006400' };
+        }
+
+        function interpolateColor(t) {
+            // Interpolate from dark green (#006400) to red (#ff0000)
+            const r = Math.floor(100 * t); // Red component increases
+            const g = Math.floor(100 * (1 - t)); // Green component decreases
+            return `rgb(${r}, ${g}, 0)`;
+        }
+
+        function drawPlayer() {
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#00ffcc';
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
+            ctx.closePath();
+        }
+
+        function drawCircle() {
+            if (!circle) return;
+            ctx.beginPath();
+            ctx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
+            ctx.fillStyle = interpolateColor(circle.time / circle.maxTime);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff50';
+            ctx.stroke();
+            ctx.closePath();
+        }
+
+        function updatePlayer() {
+            player.x += player.dx;
+            player.y += player.dy;
+
+            if (player.x < player.radius) player.x = player.radius;
+            if (player.x > canvas.width - player.radius) player.x = canvas.width - player.radius;
+            if (player.y < player.radius) player.y = player.radius;
+            if (player.y > canvas.height - player.radius) player.y = canvas.height - player.radius;
+        }
+
+        function checkCircleCollision() {
+            if (!circle) return false;
+            const dx = player.x - circle.x;
+            const dy = player.y - circle.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            // Player is fully inside the circle if the distance from player center to circle center
+            // plus player radius is less than circle radius
+            return distance + player.radius < circle.radius;
+        }
+
+        function updateCircle() {
+            if (!circle) return;
+            circle.time += 1 / 60; // Assuming 60 FPS
+            if (circle.time >= circle.maxTime) {
+                endGame();
+                return;
+            }
+            if (checkCircleCollision()) {
+                score += 10;
+                scoreDisplay.textContent = `Score: ${score}`;
+                // Adjust difficulty
+                circleRadius = Math.max(30, circleRadius * 0.95); // Shrink circle (min 30)
+                maxCircleTime = Math.max(3, maxCircleTime * 0.95); // Shorten time (min 3 seconds)
+                createCircle(); // Spawn new circle
+            }
+        }
+
+        function gameLoop(timestamp) {
+            if (!gameRunning) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            updatePlayer();
+            updateCircle();
+            drawCircle();
+            drawPlayer();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            gameRunning = true;
+            score = 0;
+            scoreDisplay.textContent = `Score: ${score}`;
+            player.x = canvas.width / 2;
+            player.y = canvas.height / 2;
+            circleRadius = selectedDifficulty === 'easy' ? 50 : selectedDifficulty === 'normal' ? 40 : 35;
+            maxCircleTime = selectedDifficulty === 'easy' ? 8 : selectedDifficulty === 'normal' ? 6 : 4;
+            difficultyMultiplier = selectedDifficulty === 'easy' ? 0.8 : selectedDifficulty === 'normal' ? 1 : 1.2;
+            circle = null;
+            createCircle();
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            difficultyScreen.style.display = 'none';
+            requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            gameRunning = false;
+            finalScore.textContent = score;
+            gameOverScreen.style.display = 'block';
+        }
+
+        function showDifficultyScreen() {
+            difficultyScreen.style.display = 'block';
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+        }
+
+        function showStartScreen() {
+            startScreen.style.display = 'block';
+            gameOverScreen.style.display = 'none';
+            difficultyScreen.style.display = 'none';
+        }
+
+        document.addEventListener('keydown', e => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key === 'Enter' && startScreen.style.display === 'block') {
+                startGame();
+            }
+            updateMovement();
+        });
+
+        document.addEventListener('keyup', e => {
+            keys[e.key.toLowerCase()] = false;
+            updateMovement();
+        });
+
+        function updateMovement() {
+            player.dx = 0;
+            player.dy = 0;
+
+            if (keys['arrowleft'] || keys['a']) {
+                if (!keys['arrowright'] && !keys['d']) player.dx = -player.speed;
+            } else if (keys['arrowright'] || keys['d']) {
+                player.dx = player.speed;
+            }
+
+            if (keys['arrowup'] || keys['w']) {
+                if (!keys['arrowdown'] && !keys['s']) player.dy = -player.speed;
+            } else if (keys['arrowdown'] || keys['s']) {
+                player.dy = player.speed;
+            }
+        }
+
+        easyButton.addEventListener('click', () => {
+            selectedDifficulty = 'easy';
+            showStartScreen();
+        });
+        normalButton.addEventListener('click', () => {
+            selectedDifficulty = 'normal';
+            showStartScreen();
+        });
+        hardButton.addEventListener('click', () => {
+            selectedDifficulty = 'hard';
+            showStartScreen();
+        });
+
+        startButton.addEventListener('click', startGame);
+        retryButton.addEventListener('click', showStartScreen);
+        changeDifficultyButton.addEventListener('click', showDifficultyScreen);
+
+        showDifficultyScreen();
+    </script>
+</body>
+</html>
