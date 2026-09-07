@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dash</title>
-    <link rel="icon" type="image/png" href="https://i.imgur.com/4X46ChO.png">	    
+    <title>Circle Dash</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -90,16 +89,16 @@
         let gameRunning = false;
         let selectedDifficulty = 'normal';
         let circle = null;
-        let circleTime = 0;
         let maxCircleTime = 6; // Initial 6 seconds
         let circleRadius = 40; // Initial radius (larger than player)
         let difficultyMultiplier = 1;
+        let lastTime = 0;
 
         const player = {
             x: canvas.width / 2,
             y: canvas.height / 2,
             radius: 20,
-            speed: 5,
+            speed: 300, // Pixels per second
             dx: 0,
             dy: 0
         };
@@ -109,12 +108,22 @@
         function createCircle() {
             const x = Math.random() * (canvas.width - circleRadius * 2) + circleRadius;
             const y = Math.random() * (canvas.height - circleRadius * 2) + circleRadius;
-            circle = { x, y, radius: circleRadius, time: 0, maxTime: maxCircleTime, color: '#006400' };
+            const now = performance.now();
+            circle = {
+                x,
+                y,
+                radius: circleRadius,
+                maxTime: maxCircleTime,
+                createdAt: now,
+                expiresAt: now + maxCircleTime * 1000,
+                progress: 0,
+                color: '#006400'
+            };
         }
 
         function interpolateColor(t) {
             // Interpolate from dark green (#006400) to red (#ff0000)
-            const r = Math.floor(100 * t); // Red component increases
+            const r = Math.floor(100 + 155 * t); // Red component increases
             const g = Math.floor(100 * (1 - t)); // Green component decreases
             return `rgb(${r}, ${g}, 0)`;
         }
@@ -133,16 +142,18 @@
             if (!circle) return;
             ctx.beginPath();
             ctx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
-            ctx.fillStyle = interpolateColor(circle.time / circle.maxTime);
+            ctx.fillStyle = interpolateColor(circle.progress);
             ctx.fill();
             ctx.strokeStyle = '#ffffff50';
             ctx.stroke();
             ctx.closePath();
         }
 
-        function updatePlayer() {
-            player.x += player.dx;
-            player.y += player.dy;
+        function updatePlayer(deltaSeconds) {
+            // speed is measured in pixels per real-world second
+            const moveDistance = player.speed * deltaSeconds;
+            player.x += player.dx * moveDistance;
+            player.y += player.dy * moveDistance;
 
             if (player.x < player.radius) player.x = player.radius;
             if (player.x > canvas.width - player.radius) player.x = canvas.width - player.radius;
@@ -160,13 +171,20 @@
             return distance + player.radius < circle.radius;
         }
 
-        function updateCircle() {
+        function updateCircle(timestamp) {
             if (!circle) return;
-            circle.time += 1 / 60; // Assuming 60 FPS
-            if (circle.time >= circle.maxTime) {
+
+            // Derive the timer from the real clock, never from the frame count.
+            circle.progress = Math.min(
+                1,
+                (timestamp - circle.createdAt) / (circle.maxTime * 1000)
+            );
+
+            if (timestamp >= circle.expiresAt) {
                 endGame();
                 return;
             }
+            
             if (checkCircleCollision()) {
                 score += 10;
                 scoreDisplay.textContent = `Score: ${score}`;
@@ -180,10 +198,15 @@
         function gameLoop(timestamp) {
             if (!gameRunning) return;
 
+            // requestAnimationFrame timestamps are high-resolution real time.
+            // Convert milliseconds to seconds so all speeds are device-independent.
+            const deltaSeconds = Math.max(0, (timestamp - lastTime) / 1000);
+            lastTime = timestamp;
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            updatePlayer();
-            updateCircle();
+            updatePlayer(deltaSeconds);
+            updateCircle(timestamp);
             drawCircle();
             drawPlayer();
 
@@ -204,6 +227,7 @@
             startScreen.style.display = 'none';
             gameOverScreen.style.display = 'none';
             difficultyScreen.style.display = 'none';
+            lastTime = performance.now();
             requestAnimationFrame(gameLoop);
         }
 
@@ -243,15 +267,21 @@
             player.dy = 0;
 
             if (keys['arrowleft'] || keys['a']) {
-                if (!keys['arrowright'] && !keys['d']) player.dx = -player.speed;
+                if (!keys['arrowright'] && !keys['d']) player.dx = -1;
             } else if (keys['arrowright'] || keys['d']) {
-                player.dx = player.speed;
+                player.dx = 1;
             }
 
             if (keys['arrowup'] || keys['w']) {
-                if (!keys['arrowdown'] && !keys['s']) player.dy = -player.speed;
+                if (!keys['arrowdown'] && !keys['s']) player.dy = -1;
             } else if (keys['arrowdown'] || keys['s']) {
-                player.dy = player.speed;
+                player.dy = 1;
+            }
+            
+            // Normalize diagonal movement
+            if (player.dx !== 0 && player.dy !== 0) {
+                player.dx *= 0.707;
+                player.dy *= 0.707;
             }
         }
 
@@ -275,6 +305,4 @@
         showDifficultyScreen();
     </script>
 </body>
-
 </html>
-
